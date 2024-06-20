@@ -254,11 +254,27 @@ class FED3 {
         // Temp/Humidity Sensor
         Adafruit_AHTX0 aht;
 
+        // handle non-blocking functions
+        enum FeedState {
+            Initialize,
+            Dispensing,
+            Checking,
+            WaitingRemoval,
+            HandlingJam,
+            Logging,
+            Idle
+            };
+        void setFeedState(FeedState state);
+        FeedState getFeedState();
+        void FeedNonBlocking();  // Non-blocking feed function
+
     private:
         static FED3* staticFED;
         static void updatePelletTriggerISR();
         static void updateLeftTriggerISR();
         static void updateRightTriggerISR();
+        FeedState currentState;
+
 };
 
 #endif
