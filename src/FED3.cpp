@@ -298,6 +298,88 @@ bool handlePelletNotDispensed(){
   }
 }
 
+void FED3::setFeedState(FeedState state) {
+    currentState = state;
+}
+
+FED3::FeedState FED3::getFeedState() {
+    return currentState;
+}
+
+void FED3::prepareForFeeding() {
+    // Setup motor, sensor, or other components
+    // placeholder for 
+    // Serial.println("Feeding preparation complete.");
+    // This might be a place for setting the motor and maybe other display stuff
+}
+
+bool FED3::IsWellEmpty(){
+  return digitalRead(PELLET_WELL) == HIGH
+}
+
+void FED3::FeedNonBlocking() {
+    bool continueProcessing = true;
+    unsigned int numJamClearTries = 0;
+
+    while (continueProcessing) {
+        switch (currentState) {
+            case Initialize:
+                prepareForFeeding();
+                currentState = Dispensing;
+                continue;  // Continue without breaking to handle dispensing immediately.
+
+            case Dispensing:
+                PelletAvailable = RotateDisk(-300);
+                if (PelletAvailable) {
+                    currentState = Checking;
+                } else {
+                    currentState = HandlingJam;
+                }
+                continue;  // Continue to check or handle jam immediately.
+
+            case Checking:
+                // Assuming CheckPelletPresence is a function that checks if a pellet is present
+                pelletRemoved = IsWellEmpty();
+                if (pelletRemoved) {
+                    currentState = Logging;
+                } else {
+                  break; // go to mainloop
+                }
+
+            case HandlingJam:
+                // this will manage jams with increasing intensity
+                // it will also do numMotorTruns++ so that we get a sense of the jam type and try many things
+                jamCleared = manageJamClearing();
+                if (jamCleared) {
+                    // pellet successfully dispensed
+                    currentState = Checking;
+                } else if (numJamClearTries < 1000){ // maybe 1000 is still a lot
+                    currentState = HandlingJam;  // Error handling or retry logic could go here.
+                    numJamClearTries++;
+                } else {
+                  // this points to a massive jam // no more pellets in well
+                  // maybe stop turning the motor
+                  currentState = Idle;
+                }
+                continue;  // Retry dispensing after clearing a jam.
+
+            case Logging:
+                logData();
+                currentState = Dispensing;  // After logging, go to idle.
+                break;  // Logging complete, exit the loop.
+
+            case Idle:
+                // Do nothing, remain in this state until externally changed
+                continueProcessing = false;  // Break the loop and do not process further.
+                // TODO: maybe some diplay of status on the display!?
+        }
+    }
+}
+
+/**************************************************************************************************************************************************
+                                                                                                Motor functions
+**************************************************************************************************************************************************/
+
 //minor movement to clear jam
 bool FED3::MinorJam(){
 	return RotateDisk(100);
@@ -1529,6 +1611,7 @@ FED3::FED3(void) {};
 
 //Import Sketch variable from the Arduino script
 FED3::FED3(String sketch) {
+  currentState = Initialize;
   sessiontype = sketch;
 }
 
