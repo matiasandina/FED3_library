@@ -142,6 +142,103 @@ void FED3::randomizeActivePoke(int max){
                                                                                                 Feeding functions
 **************************************************************************************************************************************************/
 
+void FED3::Feed(int pulse, bool pixelsoff) {
+    bool pelletDispensed = false;
+
+    do {
+        // Attempt to dispense a pellet
+        pelletDispensed = RotateDisk(-300);
+        if (pixelsoff) {
+            pixelsOff();
+        }
+
+        if (pelletDispensed) {
+            ReleaseMotor();
+            displayPelletAvailable();
+            unsigned long pelletTime = millis();
+
+            // Check for pellet removal
+            // THIS IS BLOCKING UNTIL PELLET REMOVAL
+            managePelletRemoval(pelletTime);
+
+            // Log event details
+            logPelletEvent(pulse);
+
+            // Reset for next iteration or exit
+            PelletAvailable = true;
+        } else {
+            manageJamClearing();
+        }
+    } while (!PelletAvailable);
+}
+
+void FED3::displayPelletAvailable() {
+    display.fillCircle(25, 99, 5, BLACK);
+    display.refresh();
+}
+
+void FED3::managePelletRemoval(unsigned long pelletTime) {
+    // go here for 60 seconds
+    // TODO: parametrize maxretInterval? so that checkPelletRemovalTime(pelletTime, maxRetInterval)
+    // removes the hard-coded 60 seconds
+    bool pelletRemoved = checkPelletRemovalTime(pelletTime);
+
+    if (!pelletRemoved) {
+        waitForPelletRemoval();
+    }
+}
+
+bool FED3::checkPelletRemovalTime(unsigned long pelletTime) {
+    while (digitalRead(PELLET_WELL) == LOW && (millis() - pelletTime) < 60000) {
+        DisplayRetrievalInt();
+        logPokesDuringPelletPresence();
+        if (digitalRead(PELLET_WELL) == HIGH) {
+            return true; // Pellet removed
+        }
+    }
+    return false;
+}
+
+void FED3::waitForPelletRemoval() {
+    while (digitalRead(PELLET_WELL) == LOW) {
+        run();
+        logPokesDuringPelletPresence();
+    }
+}
+
+void FED3::logPelletEvent(int pulse) {
+    PelletCount++;
+    if (pulse > 0) {
+        BNC(pulse, 1);
+    }
+
+    Left = false;
+    Right = false;
+    Event = "Pellet";
+
+    DateTime now = rtc.now();
+    interPelletInterval = now.unixtime() - lastPellet;
+    lastPellet = now.unixtime();
+    logdata();
+    numMotorTurns = 0;
+    UpdateDisplay();
+}
+
+void FED3::manageJamClearing() {
+    pelletDispensed = dispenseTimer_ms(1500);
+    numMotorTurns++;
+
+    if (!pelletDispensed) {
+        if (numMotorTurns % 5 == 0) {
+            MinorJam();
+        } else if (numMotorTurns % 10 == 0 && numMotorTurns % 20 != 0) {
+            VibrateJam();
+        } else if (numMotorTurns % 20 == 0) {
+            ClearJam();
+        }
+    }
+}
+
 void logPokesDuringPelletPresence() {
     if (digitalRead(LEFT_POKE) == LOW) {  // If left poke is triggered
         leftPokeTime = millis();
@@ -167,8 +264,6 @@ void logPokesDuringPelletPresence() {
 }
 
 bool checkPelletRemovalTime() {
-    // unsigned long retInterval = millis() - pelletTime;
-
     while (digitalRead(PELLET_WELL) == LOW && (millis() - pelletTime) < 60000) {
         retInterval = millis() - pelletTime;
         DisplayRetrievalInt();
@@ -201,74 +296,6 @@ bool handlePelletNotDispensed(){
       pelletDispensed = ClearJam();
     }
   }
-}
-
-//Run this loop repeatedly until statement below is false
-void FED3::Feed(int pulse, bool pixelsoff, bool skipRemovalCheck = false, bool blockUntilRemoval = false) {
-
-  bool pelletDispensed = false;
-
-  do {
-    pelletDispensed = RotateDisk(-300);
-
-    if (pixelsoff==true){
-      pixelsOff();
-    }
-
-    //If pellet is detected during or after this motion
-    if (pelletDispensed) {
-      ReleaseMotor ();
-
-      unsigned long pelletTime = millis();
-
-      // display.fillCircle(25, 99, 5, BLACK);
-      // display.refresh();
-      // retInterval = (millis() - pelletTime);
-
-      //while pellet is present and under 60s has elapsed
-      if (skipRemovalCheck == false){
-        bool PelletRemoved = checkPelletRemovalTime(pelletTime);
-        //after 60s elapsed
-        if (PelletRemoved == false and blockUntilRemoval == false){
-          waitForPelletRemoval();
-        }
-
-      }
-      PelletCount++;
-
-      // If pulse duration is specified, send pulse from BNC port
-      if (pulse > 0){
-        BNC (pulse, 1);
-      }
-
-      Left = false;
-      Right = false;
-      Event = "Pellet";
-
-      //calculate IntetPelletInterval
-      DateTime now = rtc.now();
-      interPelletInterval = now.unixtime() - lastPellet;  //calculate time in seconds since last pellet logged
-      lastPellet  = now.unixtime();
-
-      logdata();
-      numMotorTurns = 0; //reset numMotorTurns
-      PelletAvailable = true;
-      UpdateDisplay();
-    }
-
-    if (PelletAvailable == false){
-        pelletDispensed = dispenseTimer_ms(1500);  //delay between pellets that also checks pellet well
-        numMotorTurns++;
-
-        if (pelletDispensed == false){
-          pelletDispensed = handlePelletNotDispensed(numMotorTurns)
-        }
-
-    }
-
-  }
-  while (PelletAvailable == false);
-
 }
 
 //minor movement to clear jam
