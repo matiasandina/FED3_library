@@ -70,6 +70,7 @@ extern bool Left;
 class FED3 {
     // Members
     public:
+
         FED3(void);
         FED3(String sketch);
         String sketch = "undef";
@@ -158,12 +159,23 @@ class FED3 {
         void CheckRatio();
         void logLeftPoke();
         void logRightPoke();
-        void Feed(int pulse = 0, bool pixelsoff = true);
-        void logPokesDuringPelletPresence();
-        bool checkPelletRemovalTime();
-        void waitForPelletRemoval();
-        bool handlePelletNotDispensed();
         bool dispenseTimer_ms(int ms);
+        void Feed(int pulse = 0, bool pixelsoff = true);
+        //Blocking version helper functions
+        void displayPelletAvailable();
+        void managePelletRemoval(unsigned long pelletTime);
+        void logPokesDuringPelletPresence();
+        void logPelletEvent(int pulse);
+        bool checkPelletRemovalTime(unsigned long pelletTime);
+        void waitForPelletRemoval();
+        void handlePelletNotDispensed(bool pelletDispensed);
+        //NonBlocking Helper Functions
+        void FeedNonBlocking();
+        bool manageJamClearing();
+        void prepareForFeeding();
+        bool IsWellEmpty();
+        void logData();
+
         void pelletTrigger();
         void leftTrigger();
         void rightTrigger();
@@ -182,6 +194,7 @@ class FED3 {
         //timed feeding variables
         int timedStart; //hour to start the timed Feeding session, out of 24 hour clock
         int timedEnd; //hour to start the timed Feeding session, out of 24 hour clock
+        DateTime now();
 
         // mode variables
         int FED;
@@ -205,6 +218,7 @@ class FED3 {
         bool Left = false;
         bool Right = false;
         bool PelletAvailable = false;
+        bool pelletDispensed = false;
         unsigned long currentHour;
         unsigned long currentMinute;
         unsigned long currentSecond;
@@ -262,11 +276,13 @@ class FED3 {
             WaitingRemoval,
             HandlingJam,
             Logging,
-            Idle
+            Idle,
+            Error
             };
+
         void setFeedState(FeedState state);
         FeedState getFeedState();
-        void FeedNonBlocking();  // Non-blocking feed function
+        const char* FED3::feedStateToString(FeedState state)
 
     private:
         static FED3* staticFED;

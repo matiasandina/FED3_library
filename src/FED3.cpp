@@ -30,6 +30,7 @@
 #include "Arduino.h"
 #include "FED3.h"
 
+
 //  Start FED3 and RTC objects
 FED3 *pointerToFED3;
 RTC_PCF8523 rtc;
@@ -142,36 +143,6 @@ void FED3::randomizeActivePoke(int max){
                                                                                                 Feeding functions
 **************************************************************************************************************************************************/
 
-void FED3::Feed(int pulse, bool pixelsoff) {
-    bool pelletDispensed = false;
-
-    do {
-        // Attempt to dispense a pellet
-        pelletDispensed = RotateDisk(-300);
-        if (pixelsoff) {
-            pixelsOff();
-        }
-
-        if (pelletDispensed) {
-            ReleaseMotor();
-            displayPelletAvailable();
-            unsigned long pelletTime = millis();
-
-            // Check for pellet removal
-            // THIS IS BLOCKING UNTIL PELLET REMOVAL
-            managePelletRemoval(pelletTime);
-
-            // Log event details
-            logPelletEvent(pulse);
-
-            // Reset for next iteration or exit
-            PelletAvailable = true;
-        } else {
-            manageJamClearing();
-        }
-    } while (!PelletAvailable);
-}
-
 void FED3::displayPelletAvailable() {
     display.fillCircle(25, 99, 5, BLACK);
     display.refresh();
@@ -224,9 +195,7 @@ void FED3::logPelletEvent(int pulse) {
     UpdateDisplay();
 }
 
-void FED3::manageJamClearing() {
-    pelletDispensed = dispenseTimer_ms(1500);
-    numMotorTurns++;
+void FED3::handlePelletNotDispensed(bool pelletDispensed) {
 
     if (!pelletDispensed) {
         if (numMotorTurns % 5 == 0) {
@@ -239,7 +208,7 @@ void FED3::manageJamClearing() {
     }
 }
 
-void logPokesDuringPelletPresence() {
+void FED3::logPokesDuringPelletPresence() {
     if (digitalRead(LEFT_POKE) == LOW) {  // If left poke is triggered
         leftPokeTime = millis();
         if (countAllPokes) LeftCount++;
@@ -263,25 +232,76 @@ void logPokesDuringPelletPresence() {
     }
 }
 
-bool checkPelletRemovalTime() {
-    while (digitalRead(PELLET_WELL) == LOW && (millis() - pelletTime) < 60000) {
-        retInterval = millis() - pelletTime;
-        DisplayRetrievalInt();
-        logPokesDuringPelletPresence();
-    }
-    return digitalRead(PELLET_WELL) == HIGH;  // Return true if pellet is removed
+void FED3::Feed(int pulse, bool pixelsoff) {
+
+    bool pelletDispensed = false;
+
+    do {
+        // Attempt to dispense a pellet
+        pelletDispensed = RotateDisk(-300);
+        if (pixelsoff) {
+            pixelsOff();
+        }
+
+        if (pelletDispensed) {
+            ReleaseMotor();
+            displayPelletAvailable();
+            unsigned long pelletTime = millis();
+
+            // Check for pellet removal
+            // THIS IS BLOCKING UNTIL PELLET REMOVAL
+            managePelletRemoval(pelletTime);
+
+            // Log event details
+            logPelletEvent(pulse);
+
+            // Reset for next iteration or exit
+            PelletAvailable = true;
+        } else {
+            handlePelletNotDispensed(pelletDispensed);
+        }
+    } while (!PelletAvailable);
 }
 
-void waitForPelletRemoval() {
-    while (digitalRead(PELLET_WELL) == LOW) {  // Wait until pellet is removed
-        run();
-        logPokesDuringPelletPresence();
+
+void FED3::setFeedState(FeedState state) {
+    currentState = state;
+}
+
+FED3::FeedState FED3::getFeedState() {
+    return currentState;
+}
+
+const char* FED3::feedStateToString(FeedState state) {
+    switch (state) {
+        case Initialize: return "Initialize";
+        case Dispensing: return "Dispensing";
+        case Checking: return "Checking";
+        case WaitingRemoval: return "WaitingRemoval";
+        case HandlingJam: return "HandlingJam";
+        case Logging: return "Logging";
+        case Idle: return "Idle";
+        case Error: return "Error";
+        default: return "Unknown";
     }
 }
 
-bool handlePelletNotDispensed(){
+void FED3::prepareForFeeding() {
+
+  numMotorTurns = 0;       // Reset numMotorTurns -> great in case of errors
+
+    // Setup motor, sensor, or other components
+    // placeholder for
+    // Serial.println("Feeding preparation complete.");
+    // This might be a place for setting the motor and maybe other display stuff
+}
+bool FED3::manageJamClearing(){
+
+  // pelletDispensed = dispenseTimer_ms(1500);
+  pelletDispensed = RotateDisk(-300);
+  numMotorTurns++;
    //Jam clearing movements
-  if (pelletDispensed == false) {
+  if (!pelletDispensed) {
     if (numMotorTurns % 5 == 0) {
       pelletDispensed = MinorJam();
     }
@@ -296,83 +316,111 @@ bool handlePelletNotDispensed(){
       pelletDispensed = ClearJam();
     }
   }
-}
-
-void FED3::setFeedState(FeedState state) {
-    currentState = state;
-}
-
-FED3::FeedState FED3::getFeedState() {
-    return currentState;
-}
-
-void FED3::prepareForFeeding() {
-    // Setup motor, sensor, or other components
-    // placeholder for 
-    // Serial.println("Feeding preparation complete.");
-    // This might be a place for setting the motor and maybe other display stuff
+  return pelletDispensed;
 }
 
 bool FED3::IsWellEmpty(){
-  return digitalRead(PELLET_WELL) == HIGH
+  return digitalRead(PELLET_WELL) == HIGH;
 }
 
+void FED3::logData(){
+
+  PelletCount++;
+
+  Left = false;
+  Right = false;
+  Event = "Pellet";
+
+  DateTime now = rtc.now();
+  interPelletInterval = now.unixtime() - lastPellet;
+  lastPellet = now.unixtime();
+  logdata();
+  numMotorTurns = 0;
+  UpdateDisplay();
+  if (timeout > 0) Timeout(timeout);
+}
+
+
 void FED3::FeedNonBlocking() {
+
+    // bool pelletRemoved = true; //should this be t or f?
+    // bool pelletDispensed = false;
     bool continueProcessing = true;
     unsigned int numJamClearTries = 0;
 
     while (continueProcessing) {
+        Serial.println(feedStateToString(getFeedState()));
         switch (currentState) {
-            case Initialize:
+            case Initialize:{
                 prepareForFeeding();
-                currentState = Dispensing;
+                setFeedState(Dispensing);
                 continue;  // Continue without breaking to handle dispensing immediately.
+            }
 
-            case Dispensing:
+            case Dispensing:{
+
                 PelletAvailable = RotateDisk(-300);
                 if (PelletAvailable) {
-                    currentState = Checking;
+                    setFeedState(Checking);
                 } else {
-                    currentState = HandlingJam;
+                    setFeedState(HandlingJam);
                 }
+                Timeout(2);
                 continue;  // Continue to check or handle jam immediately.
+            }
 
-            case Checking:
+            case Checking:{
                 // Assuming CheckPelletPresence is a function that checks if a pellet is present
-                pelletRemoved = IsWellEmpty();
+                bool pelletRemoved = IsWellEmpty();
                 if (pelletRemoved) {
-                    currentState = Logging;
+                    setFeedState(Logging);
                 } else {
-                  break; // go to mainloop
+                  continueProcessing = false; // go to mainloop
                 }
+                continue;
+            }
 
-            case HandlingJam:
+            case HandlingJam:{
                 // this will manage jams with increasing intensity
                 // it will also do numMotorTruns++ so that we get a sense of the jam type and try many things
-                jamCleared = manageJamClearing();
+                bool jamCleared = manageJamClearing();
                 if (jamCleared) {
                     // pellet successfully dispensed
-                    currentState = Checking;
+                    numJamClearTries = 0;
+                    setFeedState(Checking);
                 } else if (numJamClearTries < 1000){ // maybe 1000 is still a lot
-                    currentState = HandlingJam;  // Error handling or retry logic could go here.
+                    setFeedState(HandlingJam);  // Error handling or retry logic could go here.
                     numJamClearTries++;
                 } else {
                   // this points to a massive jam // no more pellets in well
                   // maybe stop turning the motor
-                  currentState = Idle;
+                  setFeedState(Idle);
                 }
+                Timeout(2);
                 continue;  // Retry dispensing after clearing a jam.
-
-            case Logging:
+            }
+            case Logging:{
                 logData();
-                currentState = Dispensing;  // After logging, go to idle.
-                break;  // Logging complete, exit the loop.
-
-            case Idle:
+                setFeedState(Dispensing);  // After logging, go to idle.
+                continueProcessing = false;
+                continue; // Logging complete, exit the loop.
+            }
+            case Idle:{
                 // Do nothing, remain in this state until externally changed
                 continueProcessing = false;  // Break the loop and do not process further.
+                //Do we want to set state back to init here? Particularly in case nothing gets logged?
                 // TODO: maybe some diplay of status on the display!?
+                }
+            case Error:{
+                //Placeholder, not sure how to handle this
+              //just need to make sure that numJamClearTries is set back to zero somewhere
+                setFeedState(Initialize);
+                break;
+            }
+
+
         }
+
     }
 }
 
@@ -442,11 +490,12 @@ bool FED3::RotateDisk(int steps) {
   digitalWrite (MOTOR_ENABLE, HIGH);  //Enable motor driver
   for (int i = 0; i < (steps>0?steps:-steps); i++) {
 
-    logPokesDuringPelletPresence()
+    logPokesDuringPelletPresence();
 
-	  if (steps > 0)
+	  if (steps > 0){
 		  stepper.step(1);
-	  else
+    }
+	  else{
 		  stepper.step(-1);
 	  for (int j = 0; j < 20; j++){
 		delayMicroseconds(100);
@@ -458,6 +507,7 @@ bool FED3::RotateDisk(int steps) {
 		    return true;
 		  }
 		}
+    }
 	  }
     }
 	ReleaseMotor ();
@@ -1613,6 +1663,11 @@ FED3::FED3(void) {};
 FED3::FED3(String sketch) {
   currentState = Initialize;
   sessiontype = sketch;
+}
+
+//Just to overcome errors with state setting
+DateTime FED3::now(){
+  return rtc.now();
 }
 
 //  dateTime function
