@@ -160,7 +160,10 @@ void FED3::managePelletRemoval(unsigned long pelletTime) {
 }
 
 bool FED3::checkPelletRemovalTime(unsigned long pelletTime) {
+
     while (digitalRead(PELLET_WELL) == LOW && (millis() - pelletTime) < 60000) {
+
+        retInterval = (millis() - pelletTime);
         DisplayRetrievalInt();
         logPokesDuringPelletPresence();
         if (digitalRead(PELLET_WELL) == HIGH) {
@@ -193,19 +196,31 @@ void FED3::logPelletEvent(int pulse) {
     logdata();
     numMotorTurns = 0;
     UpdateDisplay();
+    if (timeout > 0) Timeout(timeout);
 }
 
-void FED3::handlePelletNotDispensed(bool pelletDispensed) {
+bool FED3::manageJamClearing(){
 
-    if (!pelletDispensed) {
-        if (numMotorTurns % 5 == 0) {
-            MinorJam();
-        } else if (numMotorTurns % 10 == 0 && numMotorTurns % 20 != 0) {
-            VibrateJam();
-        } else if (numMotorTurns % 20 == 0) {
-            ClearJam();
-        }
+  pelletDispensed = dispenseTimer_ms(1500);
+  // pelletDispensed = RotateDisk(-300);
+  numMotorTurns++;
+   //Jam clearing movements
+  if (!pelletDispensed) {
+    if (numMotorTurns % 5 == 0) {
+      pelletDispensed = MinorJam();
     }
+}
+  if (pelletDispensed == false) {
+    if (numMotorTurns % 10 == 0 and numMotorTurns % 20 != 0) {
+      pelletDispensed = VibrateJam();
+    }
+}
+  if (pelletDispensed == false) {
+    if (numMotorTurns % 20 == 0) {
+      pelletDispensed = ClearJam();
+    }
+  }
+  return pelletDispensed;
 }
 
 void FED3::logPokesDuringPelletPresence() {
@@ -258,7 +273,7 @@ void FED3::Feed(int pulse, bool pixelsoff) {
             // Reset for next iteration or exit
             PelletAvailable = true;
         } else {
-            handlePelletNotDispensed(pelletDispensed);
+            pelletDispensed = manageJamClearing();
         }
     } while (!PelletAvailable);
 }
@@ -288,36 +303,11 @@ const char* FED3::feedStateToString(FeedState state) {
 
 void FED3::prepareForFeeding() {
 
-  numMotorTurns = 0;       // Reset numMotorTurns -> great in case of errors
+  numMotorTurns = 0;       // Reset numMotorTurns
 
     // Setup motor, sensor, or other components
-    // placeholder for
-    // Serial.println("Feeding preparation complete.");
-    // This might be a place for setting the motor and maybe other display stuff
 }
-bool FED3::manageJamClearing(){
 
-  // pelletDispensed = dispenseTimer_ms(1500);
-  pelletDispensed = RotateDisk(-300);
-  numMotorTurns++;
-   //Jam clearing movements
-  if (!pelletDispensed) {
-    if (numMotorTurns % 5 == 0) {
-      pelletDispensed = MinorJam();
-    }
-}
-  if (pelletDispensed == false) {
-    if (numMotorTurns % 10 == 0 and numMotorTurns % 20 != 0) {
-      pelletDispensed = VibrateJam();
-    }
-}
-  if (pelletDispensed == false) {
-    if (numMotorTurns % 20 == 0) {
-      pelletDispensed = ClearJam();
-    }
-  }
-  return pelletDispensed;
-}
 
 bool FED3::IsWellEmpty(){
   return digitalRead(PELLET_WELL) == HIGH;
@@ -343,8 +333,6 @@ void FED3::logData(){
 
 void FED3::FeedNonBlocking() {
 
-    // bool pelletRemoved = true; //should this be t or f?
-    // bool pelletDispensed = false;
     bool continueProcessing = true;
     unsigned int numJamClearTries = 0;
 
@@ -365,7 +353,6 @@ void FED3::FeedNonBlocking() {
                 } else {
                     setFeedState(HandlingJam);
                 }
-                Timeout(2);
                 continue;  // Continue to check or handle jam immediately.
             }
 
@@ -382,13 +369,13 @@ void FED3::FeedNonBlocking() {
 
             case HandlingJam:{
                 // this will manage jams with increasing intensity
-                // it will also do numMotorTruns++ so that we get a sense of the jam type and try many things
+                // it will also increment numMotorTruns++ so that we get a sense of the jam type
                 bool jamCleared = manageJamClearing();
                 if (jamCleared) {
                     // pellet successfully dispensed
                     numJamClearTries = 0;
                     setFeedState(Checking);
-                } else if (numJamClearTries < 1000){ // maybe 1000 is still a lot
+                } else if (numJamClearTries < 1000){
                     setFeedState(HandlingJam);  // Error handling or retry logic could go here.
                     numJamClearTries++;
                 } else {
@@ -396,7 +383,6 @@ void FED3::FeedNonBlocking() {
                   // maybe stop turning the motor
                   setFeedState(Idle);
                 }
-                Timeout(2);
                 continue;  // Retry dispensing after clearing a jam.
             }
             case Logging:{
