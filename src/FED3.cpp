@@ -336,23 +336,42 @@ void FED3::logData(){
 }
 
 
-void FED3::FeedNonBlocking() {
+void FED3::FeedNonBlocking(int pulse, bool pixelsoff) {
+    // CAUTION:
+    // TESTED IN FREE FEEDING MODE ONLY
 
     bool continueProcessing = true;
     unsigned int numJamClearTries = 0;
 
     while (continueProcessing) {
-        Serial.println(feedStateToString(getFeedState()));
+        // if a poke happens to occur, we want to log it
+        logPokesDuringPelletPresence();
+        // Serial.print("Current State: "); Serial.println(feedStateToString());
         switch (currentState) {
             case Initialize:{
                 prepareForFeeding();
-                setFeedState(Dispensing);
+                if (!IsWellEmpty()){
+                  // If a pellet happens to be at init
+                  // move on without dispensing
+                  setFeedState(Checking);
+                } else{
+                  setFeedState(Dispensing);
+                }
                 continue;  // Continue without breaking to handle dispensing immediately.
             }
 
             case Dispensing:{
 
+                if (!IsWellEmpty()){
+                  setFeedState(Checking);
+                  continue;
+                }
+
                 PelletAvailable = RotateDisk(-300);
+                if (pixelsoff) {
+                  pixelsOff();
+                }
+
                 if (PelletAvailable) {
                     setFeedState(Checking);
                 } else {
@@ -362,7 +381,10 @@ void FED3::FeedNonBlocking() {
             }
 
             case Checking:{
-                // Assuming CheckPelletPresence is a function that checks if a pellet is present
+
+                DisplayRetrievalInt();
+                retInterval = (millis() - pelletTime);
+
                 bool pelletRemoved = IsWellEmpty();
                 if (pelletRemoved) {
                     setFeedState(Logging);
@@ -373,40 +395,46 @@ void FED3::FeedNonBlocking() {
             }
 
             case HandlingJam:{
+
                 // this will manage jams with increasing intensity
-                // it will also increment numMotorTruns++ so that we get a sense of the jam type
+                // it will also do numMotorTruns++ so that we get a sense of the jam type and try many things
+                PelletAvailable = RotateDisk(-300);
                 bool jamCleared = manageJamClearing();
+                // Serial.println(numMotorTurns);
                 if (jamCleared) {
                     // pellet successfully dispensed
                     numJamClearTries = 0;
                     setFeedState(Checking);
-                } else if (numJamClearTries < 1000){
+                } else if (numJamClearTries < 1000){ // maybe 1000 is still a lot
                     setFeedState(HandlingJam);  // Error handling or retry logic could go here.
                     numJamClearTries++;
                 } else {
                   // this points to a massive jam // no more pellets in well
                   // maybe stop turning the motor
-                  setFeedState(Idle);
+                  numJamClearTries= 0;
+                  setFeedState(Error);
                 }
                 continue;  // Retry dispensing after clearing a jam.
             }
             case Logging:{
-                logData();
-                setFeedState(Dispensing);  // After logging, go to idle.
+                logPelletEvent(pulse);
+                setFeedState(Dispensing);
+                retInterval = 0;
                 continueProcessing = false;
                 continue; // Logging complete, exit the loop.
             }
             case Idle:{
+
                 // Do nothing, remain in this state until externally changed
                 continueProcessing = false;  // Break the loop and do not process further.
                 //Do we want to set state back to init here? Particularly in case nothing gets logged?
-                // TODO: maybe some diplay of status on the display!?
+                // TODO: maybe some display of status on the display!?
+                // TODO: can be used to wait for external signal 
                 }
             case Error:{
                 //Placeholder, not sure how to handle this
-              //just need to make sure that numJamClearTries is set back to zero somewhere
                 setFeedState(Initialize);
-                break;
+                continueProcessing = false;
             }
 
 
