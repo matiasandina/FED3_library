@@ -161,20 +161,20 @@ class FED3 {
         void logRightPoke();
         bool dispenseTimer_ms(int ms);
         void Feed(int pulse = 0, bool pixelsoff = true);
-        //Blocking version helper functions
+
+        // Helpers for Feed() (blocking version of dispensing)
         void displayPelletAvailable();
         void managePelletRemoval(unsigned long pelletTime);
         void logPokesDuringPelletPresence();
         void logPelletEvent(int pulse);
         bool checkPelletRemovalTime(unsigned long pelletTime);
         void waitForPelletRemoval();
-        void handlePelletNotDispensed(bool pelletDispensed);
-        //NonBlocking Helper Functions
-        void FeedNonBlocking();
+        
+        // Helper Functions for FeedNonBlocking() 
+        void FeedNonBlocking(int pulse = 0, bool pixelsoff = true);
         bool manageJamClearing();
         void prepareForFeeding();
         bool IsWellEmpty();
-        void logData();
 
         void pelletTrigger();
         void leftTrigger();
@@ -194,6 +194,8 @@ class FED3 {
         //timed feeding variables
         int timedStart; //hour to start the timed Feeding session, out of 24 hour clock
         int timedEnd; //hour to start the timed Feeding session, out of 24 hour clock
+        
+        // User-exposed rtc.now()
         DateTime now();
 
         // mode variables
@@ -282,7 +284,7 @@ class FED3 {
 
         void setFeedState(FeedState state);
         FeedState getFeedState();
-        const char* FED3::feedStateToString(FeedState state)
+        const char* feedStateToString()
 
     private:
         static FED3* staticFED;
