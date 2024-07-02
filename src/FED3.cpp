@@ -153,8 +153,9 @@ void FED3::managePelletRemoval(unsigned long pelletTime) {
     // TODO: parametrize maxretInterval? so that checkPelletRemovalTime(pelletTime, maxRetInterval)
     // removes the hard-coded 60 seconds
     bool pelletRemoved = checkPelletRemovalTime(pelletTime);
-
+    // Serial.println("Checking Pellet Removal");
     if (!pelletRemoved) {
+        // Serial.println("60 seconds has passed");
         waitForPelletRemoval();
     }
 }
@@ -181,6 +182,7 @@ void FED3::waitForPelletRemoval() {
 }
 
 void FED3::logPelletEvent(int pulse) {
+    // Serial.println("Logging pellet event");
     PelletCount++;
     if (pulse > 0) {
         BNC(pulse, 1);
@@ -202,7 +204,6 @@ void FED3::logPelletEvent(int pulse) {
 bool FED3::manageJamClearing(){
 
   pelletDispensed = dispenseTimer_ms(1500);
-  // pelletDispensed = RotateDisk(-300);
   numMotorTurns++;
    //Jam clearing movements
   if (!pelletDispensed) {
@@ -253,6 +254,7 @@ void FED3::Feed(int pulse, bool pixelsoff) {
 
     do {
         // Attempt to dispense a pellet
+        // Serial.println("Calling RotateDisk(-300). Trying to dispense pellet");
         pelletDispensed = RotateDisk(-300);
         if (pixelsoff) {
             pixelsOff();
@@ -287,7 +289,10 @@ FED3::FeedState FED3::getFeedState() {
     return currentState;
 }
 
-const char* FED3::feedStateToString(FeedState state) {
+const char* FED3::feedStateToString() {
+
+    FeedState state = getFeedState();
+
     switch (state) {
         case Initialize: return "Initialize";
         case Dispensing: return "Dispensing";
@@ -1651,7 +1656,7 @@ FED3::FED3(String sketch) {
   sessiontype = sketch;
 }
 
-//Just to overcome errors with state setting
+/// Externalize rtc.now() object to user
 DateTime FED3::now(){
   return rtc.now();
 }
